@@ -4,11 +4,12 @@
 #include <assert.h>
 #include <time.h>
 
-typedef unsigned long millisec_t;
+// Time related
 #define MILLISEC_IN_SEC 1000
 #define NANOSEC_IN_MILLISEC 1000000
 #define INTERVAL 2000
 
+// Dimension
 #define BOARD_WIDTH 15
 #define BOARD_HEIGHT 15
 #define BOARDER_WIDTH 1
@@ -18,11 +19,13 @@ typedef unsigned long millisec_t;
 #define BUFFER_WIDTH ((BOARD_WIDTH + BOARDER_WIDTH * 2) * 1 + 1) // Plus 1 for newline char
 #define BUFFER_HEIGHT (BOARD_HEIGHT + BOARDER_WIDTH * 2 + UI_HEIGHT)
 
+// Draw related
 #define BOARDER_HORIZONTAL_LINE '-'
 #define BOARDER_VERTICAL_LINE '|'
 #define SNAKE_HEAD 'O'
 #define SNAKE_BODY '#'
 
+typedef unsigned long millisec_t;
 typedef struct snake_body snake_body_t;
 struct snake_body {
     snake_body_t* next;
