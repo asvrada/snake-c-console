@@ -18,6 +18,11 @@ typedef unsigned long millisec_t;
 #define BUFFER_WIDTH ((BOARD_WIDTH + BOARDER_WIDTH * 2) * 1 + 1) // Plus 1 for newline char
 #define BUFFER_HEIGHT (BOARD_HEIGHT + BOARDER_WIDTH * 2 + UI_HEIGHT)
 
+#define BOARDER_HORIZONTAL_LINE '-'
+#define BOARDER_VERTICAL_LINE '|'
+#define SNAKE_HEAD 'O'
+#define SNAKE_BODY '#'
+
 typedef struct snake_body snake_body_t;
 struct snake_body {
     snake_body_t* next;
@@ -62,7 +67,7 @@ void draw_clear_buffer() {
     if (!buffer_empty_line) {
         // plus 1 because we add newline at the end
         buffer_empty_line = calloc(BUFFER_WIDTH, sizeof(char));
-        memset(buffer_empty_line, '#', BUFFER_WIDTH);
+        memset(buffer_empty_line, ' ', BUFFER_WIDTH);
         buffer_empty_line[BUFFER_WIDTH - 1] = '\n';
     }
 
@@ -71,8 +76,52 @@ void draw_clear_buffer() {
     }
 }
 
-void draw_board_to_buffer() {
+void draw_snake() {
+    int offset_x = BOARDER_WIDTH;
+    int offset_y = BOARDER_WIDTH;
 
+    snake_body_t* cur = snake.head;
+    int head_drawn = 0;
+    while (cur != NULL) {
+        int idx = (cur->x + offset_x) * BUFFER_WIDTH + (cur->y + offset_y);
+        buffer[idx] = head_drawn ? SNAKE_BODY : SNAKE_HEAD;
+        head_drawn = 1;
+        cur = cur->next;
+    }
+}
+
+void draw_boarder() {
+    int offset_x = 0;
+    int offset_y = 0;
+    // Draw horizontal
+    // Top
+    offset_x = 0;
+    offset_y = 1;
+    for (int y = 0; y < BOARD_WIDTH; y++) {
+        buffer[y + offset_y] = BOARDER_HORIZONTAL_LINE;
+    }
+
+    // Bottom
+    offset_x = 0;
+    offset_y = 1;
+    int x = BOARD_HEIGHT + BOARDER_WIDTH;
+    for (int y = 0; y < BOARD_WIDTH; y++) {
+        buffer[(x * BUFFER_WIDTH) + (y + offset_y)] = BOARDER_HORIZONTAL_LINE;
+    }
+
+    // Draw vertical
+    // Left
+    offset_x = 1;
+    for (int x = 0; x < BOARD_HEIGHT; x++) {
+        buffer[(x + offset_x) * BUFFER_WIDTH] = BOARDER_VERTICAL_LINE;
+    }
+
+    // Right
+    offset_x = 1;
+    int y = BOARD_HEIGHT + BOARDER_WIDTH;
+    for (int x = 0; x < BOARD_HEIGHT; x++) {
+        buffer[(x + offset_x) * BUFFER_WIDTH + y] = BOARDER_VERTICAL_LINE;
+    }
 }
 
 void draw_to_buffer(int x, int y, char c) {
@@ -99,6 +148,9 @@ void update() {
 
 void draw() {
     // Draw to buffer
+    draw_clear_buffer();
+    draw_snake();
+    draw_boarder();
 
     // Print buffer to cli
     draw_clear_cli();
@@ -119,7 +171,19 @@ void init() {
     // Init snake with 3 body
     snake.direction = Right;
     snake_body_t* body1 = (snake_body_t*)malloc(sizeof(snake_body_t));
+    snake_body_t* body2 = (snake_body_t*)malloc(sizeof(snake_body_t));
+    snake_body_t* body3 = (snake_body_t*)malloc(sizeof(snake_body_t));
+    body1->next = body2;
+    body2->next = body3;
+    body3->x = body2->x = body1->x = BOARD_WIDTH / 2;
+    body1->y = BOARD_HEIGHT / 2;
+    body2->y = body1->y - 1;
+    body3->y = body2->y - 1;
+
     snake.length = 3;
+
+    snake.head = body1;
+    snake.tail = body3;
 }
 
 void cleanup() {
@@ -127,6 +191,16 @@ void cleanup() {
         free(buffer);
         buffer = NULL;
     }
+
+    // cleanup snake
+    snake_body_t* cur = snake.head;
+    while (cur != NULL) {
+        snake_body_t* tmp = cur;
+        cur = cur->next;
+        free(tmp);
+    }
+    snake.length = 0;
+    snake.head = snake.tail = NULL;
 }
 
 millisec_t to_millisec(struct timespec time) {
