@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <time.h>
+#include <poll.h>
 
 ////////////
 // Helper //
@@ -22,7 +23,6 @@ int rand_max(int max)
 #define BOARD_WIDTH 15
 #define BOARD_HEIGHT 15
 #define BOARDER_WIDTH 1
-#define UI_HEIGHT 5
 
 // For the game board, draw 1 unit (body/food/border) with 1 chars
 #define BUFFER_WIDTH ((BOARD_WIDTH + BOARDER_WIDTH * 2) * 1 + 1) // Plus 1 for newline char
@@ -33,7 +33,7 @@ int rand_max(int max)
 #define BOARDER_VERTICAL_LINE '|'
 #define SNAKE_HEAD 'O'
 #define SNAKE_BODY '#'
-#define CHAR_FOOD 'Q'
+#define CHAR_FOOD 'F'
 
 // Score
 #define SCORE_FOOD 100
@@ -46,7 +46,6 @@ struct coord
     int x;
     int y;
 };
-
 
 typedef struct snake_body snake_body_t;
 struct snake_body
@@ -81,15 +80,28 @@ typedef struct
 int should_exit = 0;
 // Screen buffer
 char *buffer;
-// array of string
-char **ui;
-int ui_cur_row = 0;
-struct timespec prev_time = {0, 0};
 snake_t snake;
+// 1: snake, 2: food
+int *buffer_board;
 // If snake eat a food, grow tail
 coord_t prev_tail = {-1, -1};
 coord_t food = {-1, -1};
 int food_eaten = 0;
+
+coord_t to_board_xy(int idx)
+{
+    int x = idx / BOARD_WIDTH;
+    int y = idx % BOARD_WIDTH;
+
+    coord_t pos = {x, y};
+
+    return pos;
+}
+
+int to_board_idx(int x, int y)
+{
+    return BOARD_WIDTH * x + y;
+}
 
 //////////////////////
 // Draw family APIs //
@@ -97,36 +109,15 @@ int food_eaten = 0;
 void draw_clear_cli()
 {
     system("clear");
-    // printf("\n\n\n\n\n");
 }
 
 void draw_clear_buffer()
 {
-    static char *buffer_empty_line = NULL;
-    // init once
-    if (!buffer_empty_line)
-    {
-        // plus 1 because we add newline at the end
-        buffer_empty_line = calloc(BUFFER_WIDTH, sizeof(char));
-        memset(buffer_empty_line, ' ', BUFFER_WIDTH);
-        buffer_empty_line[BUFFER_WIDTH - 1] = '\n';
-    }
-
     for (int row = 0; row < BUFFER_HEIGHT; row++)
     {
-        memcpy(buffer + row * BUFFER_WIDTH, buffer_empty_line, BUFFER_WIDTH);
+        memset(buffer + row * BUFFER_WIDTH, ' ', BUFFER_WIDTH);
+        buffer[(row + 1) * BUFFER_WIDTH - 1] = '\n';
     }
-    
-    // clear ui
-    for (int i = 0; i < UI_HEIGHT; i++)
-    {
-        if (ui[i] != NULL)
-        {
-            free(ui[i]);
-            ui[i] = NULL;
-        }
-    }
-    ui_cur_row = 0;
 }
 
 void draw_snake()
@@ -197,21 +188,10 @@ void draw_boarder()
     }
 }
 
-void draw_ui()
-{
-    // current score
-    char* msg_cur_score = (char*)malloc(sizeof(char) * 100);
-    sprintf(msg_cur_score, "Score: %d\n", food_eaten * SCORE_FOOD);
-    ui[ui_cur_row] = msg_cur_score;
-    ui_cur_row += 1;
-}
-
 void draw_message_to_cli()
 {
-    // start of message section in buffer
-    for (int i = 0; i < ui_cur_row && ui[i]; i++) {
-        printf("%s\n", ui[i]);
-    }
+    // draw score
+    printf("Score: %d\n", food_eaten * SCORE_FOOD);
 }
 
 void draw_buffer_to_cli()
@@ -230,16 +210,19 @@ void draw_string_to_ui()
 // End Draw family APIs //
 //////////////////////
 
-int abs(int a) {
+int abs(int a)
+{
     return a >= 0 ? a : -1;
 }
 
 void move_snake(direction_t dir)
 {
     // determine actual snake direction
-    if (dir != Null && dir != snake.direction) {
+    if (dir != Null && dir != snake.direction)
+    {
         // disallow turning 180 degree
-        if (abs(dir - snake.direction) != 2) {
+        if (abs(dir - snake.direction) != 2)
+        {
             snake.direction = dir;
         }
     }
@@ -301,8 +284,12 @@ void move_snake(direction_t dir)
         break;
     }
 
+    // update buffer_board
+    buffer_board[to_board_idx(prev_tail.x, prev_tail.y)] = 0;
+    buffer_board[to_board_idx(old_tail->pos.x, old_tail->pos.y)] = 1;
+
     // check if head collide with body
-    snake_body_t* cur = snake.head->next;
+    snake_body_t *cur = snake.head->next;
     while (cur)
     {
         if (cur->pos.x == snake.head->pos.x && cur->pos.y == snake.head->pos.y)
@@ -321,13 +308,22 @@ void generate_food()
         // randomly generate a food
         int count = BOARD_HEIGHT * BOARD_WIDTH - snake.length;
         int idx_food = rand_max(count);
+
+        int idx_cur = 0;
+        while (idx_food--)
+        {
+            idx_cur++;
+            while (buffer_board[idx_cur])
+            {
+                idx_cur++;
+            }
+        }
+
         // convert to x and y
-        int x = idx_food / BOARD_WIDTH;
-        int y = idx_food % BOARD_WIDTH;
+        int x = idx_cur / BOARD_WIDTH;
+        int y = idx_cur % BOARD_WIDTH;
         food.x = x;
         food.y = y;
-        // move food to an empty space if overlap with snake
-        // todo
     }
 }
 
@@ -338,7 +334,7 @@ int grow_snake()
     if (head.x == food.x && head.y == food.y)
     {
         // grow
-        snake_body_t *new_body = (snake_body_t*)malloc(sizeof(snake_body_t));
+        snake_body_t *new_body = (snake_body_t *)malloc(sizeof(snake_body_t));
         new_body->pos = prev_tail;
 
         // append to tail of snake
@@ -371,7 +367,6 @@ void draw()
     draw_snake();
     draw_food();
     draw_boarder();
-    draw_ui();
 
     // Print buffer to cli
     draw_clear_cli();
@@ -396,8 +391,13 @@ void init()
         assert(0);
     }
 
-    // init ui
-    ui = (char**)calloc(UI_HEIGHT, sizeof(char*));
+    if ((buffer_board = (int *)calloc(BOARD_WIDTH * BOARD_HEIGHT,
+                                      sizeof(int))) == NULL)
+    {
+        // Allocation failed
+        fprintf(stderr, "Failed to allocate buffer_board\n");
+        assert(0);
+    }
 
     draw_clear_buffer();
 
@@ -426,6 +426,11 @@ void init()
     snake.head = body1;
     snake.tail = body3;
 
+    // init buffer_board
+    buffer_board[to_board_idx(body1->pos.x, body1->pos.y)] = 1;
+    buffer_board[to_board_idx(body2->pos.x, body2->pos.y)] = 1;
+    buffer_board[to_board_idx(body3->pos.x, body3->pos.y)] = 1;
+
     // random seed
     srand(time(NULL));
 }
@@ -436,6 +441,12 @@ void cleanup()
     {
         free(buffer);
         buffer = NULL;
+    }
+
+    if (buffer_board)
+    {
+        free(buffer_board);
+        buffer_board = NULL;
     }
 
     // cleanup snake
@@ -450,55 +461,8 @@ void cleanup()
     snake.head = snake.tail = NULL;
 }
 
-millisec_t to_millisec(struct timespec time)
+direction_t map_input(char c)
 {
-    return time.tv_sec * MILLISEC_IN_SEC + time.tv_nsec / NANOSEC_IN_MILLISEC;
-}
-
-void to_timespec(millisec_t millisec, struct timespec *timespec)
-{
-    timespec->tv_nsec = (millisec % MILLISEC_IN_SEC) * NANOSEC_IN_MILLISEC;
-    timespec->tv_sec = millisec / MILLISEC_IN_SEC;
-}
-
-millisec_t gen_wait_time(millisec_t elapsed_time)
-{
-    if (INTERVAL <= elapsed_time)
-    {
-        return 0;
-    }
-    return INTERVAL - elapsed_time;
-}
-
-void start_timing()
-{
-    clock_gettime(CLOCK_MONOTONIC, &prev_time);
-}
-
-void game_sleep()
-{
-    struct timespec current_time;
-    clock_gettime(CLOCK_MONOTONIC, &current_time);
-
-    // 1. generate elapsed time
-    millisec_t prev_milli = to_millisec(prev_time);
-    millisec_t current_milli = to_millisec(current_time);
-    //    printf("Elapsed time: %lu\n", elapsed_time);
-
-    // 2. generate sleep time
-    struct timespec req = {0, 0};
-    to_timespec(gen_wait_time(current_milli - prev_milli), &req);
-    // printf("Wait time: %ld %ld\n", req.tv_sec, req.tv_nsec);
-
-    // 3. sleep
-    nanosleep(&req, NULL);
-}
-
-// We use WASD to control snake
-// User input: W, S, A, D
-direction_t get_dir_input()
-{
-    char c = getchar();
     direction_t dir = Null;
     switch (c)
     {
@@ -531,18 +495,58 @@ direction_t get_dir_input()
         break;
     }
 
+    return dir;
+}
+
+// We use WASD to control snake
+// User input: W, S, A, D
+direction_t get_dir_input()
+{
+    char c = getchar();
+    direction_t dir = map_input(c);
+    // consume return key
     char newline = getchar();
+    return dir;
+}
+
+int poll_timeout(int millisec_timeout)
+{
+    struct pollfd fd[] = {{0, POLLIN, 0}};
+    int count = poll(fd, 1, millisec_timeout);
+    // printf("ret poll: %d revents: %d\n", ret, fd[0].revents);
+
+    return count;
+}
+
+direction_t get_dir_input_timeout(int millisec_timeout)
+{
+    int count = poll_timeout(millisec_timeout);
+    if (count == 0)
+    {
+        // user failed to input something before timeout
+        return Null;
+    }
+    char c = getchar();
+    direction_t dir = map_input(c);
+    if (dir != Null)
+    {
+        // consume return key
+        char newline = getchar();
+    }
     return dir;
 }
 
 int main()
 {
     init();
+    generate_food();
+    draw();
+
     // main loop
     while (!should_exit)
     {
         // get input
-        int dir = get_dir_input();
+        int dir = get_dir_input_timeout(500);
         update(dir);
         draw();
     }
