@@ -4,6 +4,15 @@
 #include <assert.h>
 #include <time.h>
 
+////////////
+// Helper //
+////////////
+int rand_max(int max)
+{
+    int ret = rand();
+    return (int)((float)ret / RAND_MAX * max);
+}
+
 // Time related
 #define MILLISEC_IN_SEC 1000
 #define NANOSEC_IN_MILLISEC 1000000
@@ -24,24 +33,34 @@
 #define BOARDER_VERTICAL_LINE '|'
 #define SNAKE_HEAD 'O'
 #define SNAKE_BODY '#'
+#define CHAR_FOOD 'Q'
 
 typedef unsigned long millisec_t;
+
+typedef struct coord coord_t;
+struct coord
+{
+    int x;
+    int y;
+};
+
+
 typedef struct snake_body snake_body_t;
 struct snake_body
 {
     snake_body_t *next;
     snake_body_t *prev;
 
-    int x;
-    int y;
+    coord_t pos;
 };
 
 typedef enum
 {
-    Right = 0,
+    Null = 0,
+    Up,
     Left,
     Down,
-    Up
+    Right
 } direction_t;
 
 typedef struct
@@ -61,13 +80,17 @@ int should_exit = 0;
 char *buffer;
 struct timespec prev_time = {0, 0};
 snake_t snake;
+// If snake eat a food, grow tail
+coord_t prev_tail = {-1, -1};
+coord_t food = {-1, -1};
 
 //////////////////////
 // Draw family APIs //
 //////////////////////
 void draw_clear_cli()
 {
-    system("clear");
+    // system("clear");
+    printf("\n\n\n\n\n");
 }
 
 void draw_clear_buffer()
@@ -97,10 +120,23 @@ void draw_snake()
     int head_drawn = 0;
     while (cur != NULL)
     {
-        int idx = (cur->x + offset_x) * BUFFER_WIDTH + (cur->y + offset_y);
+        int idx = (cur->pos.x + offset_x) * (BUFFER_WIDTH) + (cur->pos.y + offset_y);
         buffer[idx] = head_drawn ? SNAKE_BODY : SNAKE_HEAD;
         head_drawn = 1;
         cur = cur->next;
+    }
+}
+
+void draw_food()
+{
+    int offset_x = BOARDER_WIDTH;
+    int offset_y = BOARDER_WIDTH;
+
+    if (food.x != -1 && food.y != -1)
+    {
+        int idx = (food.x + offset_x) * (BUFFER_WIDTH) + (food.y + offset_y);
+        assert(idx < (BUFFER_WIDTH * BUFFER_HEIGHT));
+        buffer[idx] = CHAR_FOOD;
     }
 }
 
@@ -163,10 +199,25 @@ void draw_string_to_ui()
 // End Draw family APIs //
 //////////////////////
 
-void move_snake()
+int abs(int a) {
+    return a >= 0 ? a : -1;
+}
+
+void move_snake(direction_t dir)
 {
+    // determine actual snake direction
+    if (dir != Null && dir != snake.direction) {
+        // disallow turning 180 degree
+        if (abs(dir - snake.direction) != 2) {
+            snake.direction = dir;
+        }
+    }
+
     snake_body_t *old_head = snake.head;
     snake_body_t *old_tail = snake.tail;
+
+    // update prev_tail
+    prev_tail = old_tail->pos;
 
     // Move tail to head
     snake.tail = old_tail->prev;
@@ -183,27 +234,34 @@ void move_snake()
     switch (snake.direction)
     {
     case Right:
-        old_tail->y = old_head->y + 1;
-        // todo: border
-        if (old_tail->y >= BOARD_WIDTH) {
+        old_tail->pos.x = old_head->pos.x;
+        old_tail->pos.y = old_head->pos.y + 1;
+        if (old_tail->pos.y >= BOARD_WIDTH)
+        {
             should_exit = 1;
         }
         break;
     case Left:
-        old_tail->y = old_head->y - 1;
-        if (old_tail->y < 0) {
+        old_tail->pos.x = old_head->pos.x;
+        old_tail->pos.y = old_head->pos.y - 1;
+        if (old_tail->pos.y < 0)
+        {
             should_exit = 1;
         }
         break;
     case Up:
-        old_tail->x = old_head->x - 1;
-        if (old_tail->x < 0) {
+        old_tail->pos.x = old_head->pos.x - 1;
+        old_tail->pos.y = old_head->pos.y;
+        if (old_tail->pos.x < 0)
+        {
             should_exit = 1;
         }
         break;
     case Down:
-        old_tail->x = old_head->x + 1;
-        if (old_tail->x >= BOARD_HEIGHT) {
+        old_tail->pos.x = old_head->pos.x + 1;
+        old_tail->pos.y = old_head->pos.y;
+        if (old_tail->pos.x >= BOARD_HEIGHT)
+        {
             should_exit = 1;
         }
         break;
@@ -211,11 +269,64 @@ void move_snake()
         // Impossible
         break;
     }
+
+    // check if head collide with body
+    snake_body_t* cur = snake.head->next;
+    while (cur)
+    {
+        if (cur->pos.x == snake.head->pos.x && cur->pos.y == snake.head->pos.y)
+        {
+            should_exit = 1;
+            return;
+        }
+        cur = cur->next;
+    }
 }
 
-void update()
+void generate_food()
 {
-    move_snake();
+    if (food.x == -1 && food.y == -1)
+    {
+        // randomly generate a food
+        int count = BOARD_HEIGHT * BOARD_WIDTH - snake.length;
+        int idx_food = rand_max(count);
+        // convert to x and y
+        int x = idx_food / BOARD_WIDTH;
+        int y = idx_food % BOARD_WIDTH;
+        food.x = x;
+        food.y = y;
+        // move food to an empty space if overlap with snake
+        // todo
+    }
+}
+
+// Return 1 if snake eat food, 0 otherwise
+int grow_snake()
+{
+    coord_t head = snake.head->pos;
+    if (head.x == food.x && head.y == food.y)
+    {
+        // grow
+        snake_body_t *new_body = (snake_body_t*)malloc(sizeof(snake_body_t));
+        new_body->pos = prev_tail;
+
+        // append to tail of snake
+        new_body->prev = snake.tail;
+        snake.tail->next = new_body;
+
+        snake.tail = new_body;
+
+        snake.length += 1;
+        food.x = food.y = -1;
+        generate_food();
+    }
+}
+
+void update(direction_t dir)
+{
+    generate_food();
+    move_snake(dir);
+    grow_snake();
 }
 
 void draw()
@@ -224,6 +335,7 @@ void draw()
 
     // Draw to buffer
     draw_snake();
+    draw_food();
     draw_boarder();
 
     // Print buffer to cli
@@ -231,7 +343,7 @@ void draw()
     draw_buffer_to_cli();
 
     // debug
-    // printf("%d,%d %d,%d %d,%d\n", 
+    // printf("%d,%d %d,%d %d,%d\n",
     // snake.head->x,snake.head->y,
     // snake.head->next->x,snake.head->next->y,
     // snake.head->next->next->x,snake.head->next->next->y);
@@ -265,15 +377,18 @@ void init()
     body2->prev = body1;
     body1->prev = NULL;
 
-    body3->x = body2->x = body1->x = BOARD_WIDTH / 2;
-    body1->y = BOARD_HEIGHT / 2;
-    body2->y = body1->y - 1;
-    body3->y = body2->y - 1;
+    body3->pos.x = body2->pos.x = body1->pos.x = BOARD_WIDTH / 2;
+    body1->pos.y = BOARD_HEIGHT / 2;
+    body2->pos.y = body1->pos.y - 1;
+    body3->pos.y = body2->pos.y - 1;
 
     snake.length = 3;
 
     snake.head = body1;
     snake.tail = body3;
+
+    // random seed
+    srand(time(NULL));
 }
 
 void cleanup()
@@ -340,18 +455,57 @@ void game_sleep()
     nanosleep(&req, NULL);
 }
 
+// We use WASD to control snake
+// User input: W, S, A, D
+direction_t get_dir_input()
+{
+    char c = getchar();
+    direction_t dir = Null;
+    switch (c)
+    {
+    // W, w
+    case 87:
+    case 119:
+        dir = Up;
+        break;
+    // S, s
+    case 83:
+    case 115:
+        dir = Down;
+        break;
+    // A, a
+    case 65:
+    case 97:
+        dir = Left;
+        break;
+    // D, d
+    case 68:
+    case 100:
+        dir = Right;
+        break;
+
+    // newline, enter
+    case 10:
+        return Null;
+    default:
+        // todo: do something?
+        break;
+    }
+
+    char newline = getchar();
+    return dir;
+}
+
 int main()
 {
     init();
     // main loop
     while (!should_exit)
     {
-        start_timing();
-
-        update();
+        // get input
+        int dir = get_dir_input();
+        update(dir);
         draw();
-
-        game_sleep();
     }
 
     cleanup();
