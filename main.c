@@ -22,11 +22,11 @@ int rand_max(int max)
 #define BOARD_WIDTH 15
 #define BOARD_HEIGHT 15
 #define BOARDER_WIDTH 1
-#define UI_HEIGHT 10
+#define UI_HEIGHT 5
 
 // For the game board, draw 1 unit (body/food/border) with 1 chars
 #define BUFFER_WIDTH ((BOARD_WIDTH + BOARDER_WIDTH * 2) * 1 + 1) // Plus 1 for newline char
-#define BUFFER_HEIGHT (BOARD_HEIGHT + BOARDER_WIDTH * 2 + UI_HEIGHT)
+#define BUFFER_HEIGHT (BOARD_HEIGHT + BOARDER_WIDTH * 2)
 
 // Draw related
 #define BOARDER_HORIZONTAL_LINE '-'
@@ -34,6 +34,9 @@ int rand_max(int max)
 #define SNAKE_HEAD 'O'
 #define SNAKE_BODY '#'
 #define CHAR_FOOD 'Q'
+
+// Score
+#define SCORE_FOOD 100
 
 typedef unsigned long millisec_t;
 
@@ -78,19 +81,23 @@ typedef struct
 int should_exit = 0;
 // Screen buffer
 char *buffer;
+// array of string
+char **ui;
+int ui_cur_row = 0;
 struct timespec prev_time = {0, 0};
 snake_t snake;
 // If snake eat a food, grow tail
 coord_t prev_tail = {-1, -1};
 coord_t food = {-1, -1};
+int food_eaten = 0;
 
 //////////////////////
 // Draw family APIs //
 //////////////////////
 void draw_clear_cli()
 {
-    // system("clear");
-    printf("\n\n\n\n\n");
+    system("clear");
+    // printf("\n\n\n\n\n");
 }
 
 void draw_clear_buffer()
@@ -109,6 +116,17 @@ void draw_clear_buffer()
     {
         memcpy(buffer + row * BUFFER_WIDTH, buffer_empty_line, BUFFER_WIDTH);
     }
+    
+    // clear ui
+    for (int i = 0; i < UI_HEIGHT; i++)
+    {
+        if (ui[i] != NULL)
+        {
+            free(ui[i]);
+            ui[i] = NULL;
+        }
+    }
+    ui_cur_row = 0;
 }
 
 void draw_snake()
@@ -179,8 +197,21 @@ void draw_boarder()
     }
 }
 
-void draw_to_buffer(int x, int y, char c)
+void draw_ui()
 {
+    // current score
+    char* msg_cur_score = (char*)malloc(sizeof(char) * 100);
+    sprintf(msg_cur_score, "Score: %d\n", food_eaten * SCORE_FOOD);
+    ui[ui_cur_row] = msg_cur_score;
+    ui_cur_row += 1;
+}
+
+void draw_message_to_cli()
+{
+    // start of message section in buffer
+    for (int i = 0; i < ui_cur_row && ui[i]; i++) {
+        printf("%s\n", ui[i]);
+    }
 }
 
 void draw_buffer_to_cli()
@@ -319,6 +350,9 @@ int grow_snake()
         snake.length += 1;
         food.x = food.y = -1;
         generate_food();
+
+        // update score
+        food_eaten += 1;
     }
 }
 
@@ -337,10 +371,12 @@ void draw()
     draw_snake();
     draw_food();
     draw_boarder();
+    draw_ui();
 
     // Print buffer to cli
     draw_clear_cli();
     draw_buffer_to_cli();
+    draw_message_to_cli();
 
     // debug
     // printf("%d,%d %d,%d %d,%d\n",
@@ -359,6 +395,9 @@ void init()
         fprintf(stderr, "Failed to allocate buffer\n");
         assert(0);
     }
+
+    // init ui
+    ui = (char**)calloc(UI_HEIGHT, sizeof(char*));
 
     draw_clear_buffer();
 
