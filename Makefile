@@ -1,7 +1,7 @@
 all: build
 
-build: main.c
-	gcc -g main.c -o snake
+build: snake.c
+	gcc -g snake.c -o snake
 
 run:
 	./snake
